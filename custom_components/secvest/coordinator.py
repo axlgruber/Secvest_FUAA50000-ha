@@ -11,7 +11,12 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 from .api import SecvestAuthError, SecvestClient, SecvestConnectionError, SecvestData
-from .const import CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL, DOMAIN
+from .const import (
+    CONF_SCAN_INTERVAL,
+    DEFAULT_SCAN_INTERVAL,
+    DOMAIN,
+    MAX_TOLERATED_FAILURES,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -33,11 +38,25 @@ class SecvestCoordinator(DataUpdateCoordinator[SecvestData]):
             update_interval=timedelta(seconds=interval),
         )
         self.client = client
+        self._failures = 0
 
     async def _async_update_data(self) -> SecvestData:
         try:
-            return await self.client.async_get_data()
+            data = await self.client.async_get_data()
         except SecvestAuthError as err:
+            # Auth sofort melden (z.B. Errichter angemeldet) – kein Retry,
+            # wiederholte Fehl-Logins können Sabotage auslösen.
             raise ConfigEntryAuthFailed(err) from err
         except SecvestConnectionError as err:
+            self._failures += 1
+            if self.data is not None and self._failures <= MAX_TOLERATED_FAILURES:
+                _LOGGER.debug(
+                    "Secvest-Abfrage fehlgeschlagen (%s/%s), behalte letzte Daten: %s",
+                    self._failures,
+                    MAX_TOLERATED_FAILURES,
+                    err,
+                )
+                return self.data
             raise UpdateFailed(err) from err
+        self._failures = 0
+        return data

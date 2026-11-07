@@ -75,6 +75,9 @@ class SecvestAlarmPanel(CoordinatorEntity[SecvestCoordinator], AlarmControlPanel
     ) -> None:
         super().__init__(coordinator)
         self._partition = partition
+        # Übergangszustand (arming/disarming) für sofortiges UI-Feedback,
+        # solange Schalten + Nachprüfung laufen.
+        self._pending: AlarmControlPanelState | None = None
         self._disarm_code: str = str(
             entry.options.get(CONF_DISARM_CODE) or ""
         ).strip()
@@ -103,6 +106,8 @@ class SecvestAlarmPanel(CoordinatorEntity[SecvestCoordinator], AlarmControlPanel
 
     @property
     def alarm_state(self) -> AlarmControlPanelState | None:
+        if self._pending is not None:
+            return self._pending
         part = self._data()
         if not part:
             return None
@@ -147,6 +152,17 @@ class SecvestAlarmPanel(CoordinatorEntity[SecvestCoordinator], AlarmControlPanel
             "open_zones": open_zones,
         }
 
+    def _set_pending(self, state: AlarmControlPanelState | None) -> None:
+        self._pending = state
+        self.async_write_ha_state()
+
+    def _apply_state(self, state: str | None) -> None:
+        """Bestätigten Anlagenzustand sofort übernehmen (nicht auf Poll warten)."""
+        part = self._data()
+        if state and part is not None:
+            part["state"] = state
+            self.coordinator.async_update_listeners()
+
     def _open_zone_names(self) -> list[str]:
         pid = str(self._partition)
         return [
@@ -177,19 +193,23 @@ class SecvestAlarmPanel(CoordinatorEntity[SecvestCoordinator], AlarmControlPanel
                 f"{self.name} nicht scharf geschaltet – offen: "
                 + ", ".join(open_zones)
             )
-        await self._switch(mode)
+        self._set_pending(AlarmControlPanelState.ARMING)
         state: str | None = None
-        for _ in range(ARM_VERIFY_ATTEMPTS):
-            await asyncio.sleep(ARM_VERIFY_INTERVAL)
-            try:
-                state = await self.coordinator.client.async_get_partition_state(
-                    self._partition
-                )
-            except SecvestError:
-                state = None
-            if state and state != STATE_UNSET:
-                break
-        await self.coordinator.async_request_refresh()
+        try:
+            await self._switch(mode)
+            for _ in range(ARM_VERIFY_ATTEMPTS):
+                await asyncio.sleep(ARM_VERIFY_INTERVAL)
+                try:
+                    state = await self.coordinator.client.async_get_partition_state(
+                        self._partition
+                    )
+                except SecvestError:
+                    state = None
+                if state and state != STATE_UNSET:
+                    break
+            self._apply_state(state)
+        finally:
+            self._set_pending(None)
         if state == STATE_UNSET:
             raise HomeAssistantError(
                 f"{self.name}: Secvest hat das Scharfschalten nicht bestätigt "
@@ -204,7 +224,15 @@ class SecvestAlarmPanel(CoordinatorEntity[SecvestCoordinator], AlarmControlPanel
             str(code or ""), self._disarm_code
         ):
             raise HomeAssistantError("Falscher Code – nicht unscharf geschaltet")
+        self._set_pending(AlarmControlPanelState.DISARMING)
+        try:
+            await self._disarm_with_followup()
+        finally:
+            self._set_pending(None)
+
+    async def _disarm_with_followup(self) -> None:
         await self._switch(STATE_UNSET)
+        state: str | None = None
         # Bei laufendem Alarm wertet die Secvest das erste "unset" nur als
         # Quittieren (set-alarm -> acknowledged); erst ein zweites "unset"
         # schaltet wirklich unscharf. Daher bis zu zweimal nachlegen.
@@ -217,6 +245,7 @@ class SecvestAlarmPanel(CoordinatorEntity[SecvestCoordinator], AlarmControlPanel
             except SecvestError:
                 break
             if state is None or state == STATE_UNSET:
+                self._apply_state(state)
                 break
             if state == STATE_ACKNOWLEDGED or "alarm" in state:
                 _LOGGER.debug(

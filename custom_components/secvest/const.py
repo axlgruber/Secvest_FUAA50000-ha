@@ -27,6 +27,10 @@ CONF_DISARM_CODE = "disarm_code"
 # brechen intern ab, z.B. bei offener Zone).
 ARM_VERIFY_ATTEMPTS = 4
 ARM_VERIFY_INTERVAL = 2.5  # Sekunden
+# Die Anlage beantwortet unter Last gelegentlich eine Abfrage nicht.
+# So viele Verbindungsfehler in Folge werden mit den letzten Daten
+# überbrückt, bevor die Entities 'nicht verfügbar' werden.
+MAX_TOLERATED_FAILURES = 2
 MIN_SCAN_INTERVAL = 10  # Anlage bricht unter Last ab -> nie darunter
 MAX_SCAN_INTERVAL = 120
 
