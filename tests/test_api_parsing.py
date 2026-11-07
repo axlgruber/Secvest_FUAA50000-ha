@@ -235,3 +235,27 @@ def test_partition_zones_position_mismatch_ignored():
         _run(client.async_close())
     assert data.zones["301"]["name"] == "Zone 301"
     assert data.zones["301"]["open"] is False
+
+
+def test_ack_faults_skips_open_zones():
+    calls = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append((request.method, request.url.path, request.content))
+        return httpx.Response(200, json={})
+
+    client = api.SecvestClient("host", 4433, "user", "pw")
+    client._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    faults = [
+        FAULT_OPEN_ZONE,
+        {"type": "230", "id": "77", "ui-string": "PSTN Störung Sprachwählgerät"},
+        {"type": "230", "ui-string": "ohne ID"},
+    ]
+    try:
+        acked = _run(client.async_ack_faults(faults))
+    finally:
+        _run(client.async_close())
+    assert acked == 1
+    assert calls == [
+        ("PUT", const.ENDPOINT_FAULT_ACK.format(fid="77"), b'{"ack":true,"acknowledge":true}')
+    ] or (calls[0][0], calls[0][1]) == ("PUT", "/faults/77/")

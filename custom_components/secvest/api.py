@@ -18,6 +18,7 @@ import httpx
 from .const import (
     DEFAULT_LOG_LIMIT,
     FAULT_TYPE_OPEN_ZONE,
+    ENDPOINT_FAULT_ACK,
     ENDPOINT_FAULTS,
     ENDPOINT_FORM_LOGIN,
     ENDPOINT_LOGS,
@@ -356,6 +357,30 @@ class SecvestClient:
             if str(part.get("id")) == str(partition):
                 return str(part.get("state", "")).lower()
         return None
+
+    async def async_ack_faults(self, faults: list[dict[str, Any]]) -> int:
+        """Störungen quittieren; Rückgabe: Anzahl angenommener Quittungen.
+
+        Offene-Zone-"Störungen" (type 5000) werden übersprungen – die
+        verschwinden erst, wenn die Zone geschlossen ist.
+        """
+        acked = 0
+        for fault in faults:
+            fid = fault.get("id")
+            if not fid or str(fault.get("type")) == FAULT_TYPE_OPEN_ZONE:
+                continue
+            resp = await self._request(
+                "PUT",
+                ENDPOINT_FAULT_ACK.format(fid=fid),
+                json={"ack": True, "acknowledge": True},
+            )
+            if resp.status_code < 300:
+                acked += 1
+            else:
+                _LOGGER.warning(
+                    "Störung %s nicht quittiert: HTTP %s", fid, resp.status_code
+                )
+        return acked
 
     async def async_set_partition(self, partition: int, mode: str) -> dict:
         """Teilbereich schalten.

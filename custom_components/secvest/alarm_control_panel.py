@@ -205,6 +205,28 @@ class SecvestAlarmPanel(CoordinatorEntity[SecvestCoordinator], AlarmControlPanel
         ):
             raise HomeAssistantError("Falscher Code – nicht unscharf geschaltet")
         await self._switch(STATE_UNSET)
+        # Bei laufendem Alarm wertet die Secvest das erste "unset" nur als
+        # Quittieren (set-alarm -> acknowledged); erst ein zweites "unset"
+        # schaltet wirklich unscharf. Daher bis zu zweimal nachlegen.
+        for _ in range(2):
+            await asyncio.sleep(ARM_VERIFY_INTERVAL)
+            try:
+                state = await self.coordinator.client.async_get_partition_state(
+                    self._partition
+                )
+            except SecvestError:
+                break
+            if state is None or state == STATE_UNSET:
+                break
+            if state == STATE_ACKNOWLEDGED or "alarm" in state:
+                _LOGGER.debug(
+                    "Teilbereich %s nach Unscharf noch '%s' – erneut unscharf",
+                    self._partition,
+                    state,
+                )
+                await self._switch(STATE_UNSET)
+            else:
+                break
         await self.coordinator.async_request_refresh()
 
     async def async_alarm_arm_home(self, code: str | None = None) -> None:

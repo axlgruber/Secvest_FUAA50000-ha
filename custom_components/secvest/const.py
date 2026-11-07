@@ -45,6 +45,9 @@ ENDPOINT_PARTITION_SET = "/system/partitions-{p}/"
 ENDPOINT_PARTITION_ZONES = "/system/partitions-{p}/zones/"
 ZONE_STATE_OPEN = "open"
 ENDPOINT_FAULTS = "/faults/"
+# Einzelne Störung quittieren: PUT {"ack": true, "acknowledge": true}
+# (übernommen aus dkmouk/secvest-ha, dort im Einsatz).
+ENDPOINT_FAULT_ACK = "/faults/{fid}/"
 # sec_global_status.cgx liefert offene Zonen nur einer eingeloggten
 # Web-UI-Session (Basic: <authorised> leer). Daher NICHT vom Client
 # genutzt – offene Zonen kommen aus /faults/ type 5000. Nur zur Doku.
