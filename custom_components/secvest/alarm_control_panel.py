@@ -158,10 +158,8 @@ class SecvestAlarmPanel(CoordinatorEntity[SecvestCoordinator], AlarmControlPanel
 
     def _apply_state(self, state: str | None) -> None:
         """Bestätigten Anlagenzustand sofort übernehmen (nicht auf Poll warten)."""
-        part = self._data()
-        if state and part is not None:
-            part["state"] = state
-            self.coordinator.async_update_listeners()
+        if state:
+            self.coordinator.set_confirmed_state(self._partition, state)
 
     def _open_zone_names(self) -> list[str]:
         pid = str(self._partition)

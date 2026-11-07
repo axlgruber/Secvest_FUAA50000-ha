@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from datetime import timedelta
 
 from homeassistant.config_entries import ConfigEntry
@@ -39,8 +40,21 @@ class SecvestCoordinator(DataUpdateCoordinator[SecvestData]):
         )
         self.client = client
         self._failures = 0
+        # partition_id -> (bestätigter Zustand, monotonic-Zeitpunkt). Schützt
+        # vor Polls, die VOR dem Schalten gestartet wurden und mit altem
+        # Zustand zurückkommen (ein Poll dauert wegen TLS mehrere Sekunden).
+        self._confirmed: dict[int, tuple[str, float]] = {}
+
+    def set_confirmed_state(self, partition: int, state: str) -> None:
+        """Von der Anlage bestätigten Zustand sofort übernehmen und halten."""
+        self._confirmed[partition] = (state, time.monotonic())
+        part = self.data.partitions.get(partition) if self.data else None
+        if part is not None:
+            part["state"] = state
+            self.async_update_listeners()
 
     async def _async_update_data(self) -> SecvestData:
+        poll_started = time.monotonic()
         try:
             data = await self.client.async_get_data()
         except SecvestAuthError as err:
@@ -59,4 +73,10 @@ class SecvestCoordinator(DataUpdateCoordinator[SecvestData]):
                 return self.data
             raise UpdateFailed(err) from err
         self._failures = 0
+        for pid, (state, confirmed_at) in list(self._confirmed.items()):
+            if confirmed_at > poll_started and pid in data.partitions:
+                # Poll lief schon vor dem Schalten los -> veraltet.
+                data.partitions[pid]["state"] = state
+            else:
+                del self._confirmed[pid]
         return data
