@@ -343,6 +343,20 @@ class SecvestClient:
             return []
         return data[:limit]
 
+    async def async_get_partition_state(self, partition: int) -> str | None:
+        """Nur den Zustand eines Teilbereichs lesen (1 Request)."""
+        resp = await self._request("GET", ENDPOINT_PARTITIONS)
+        if resp.status_code >= 300:
+            return None
+        try:
+            parts = resp.json()
+        except ValueError:
+            return None
+        for part in parts if isinstance(parts, list) else []:
+            if str(part.get("id")) == str(partition):
+                return str(part.get("state", "")).lower()
+        return None
+
     async def async_set_partition(self, partition: int, mode: str) -> dict:
         """Teilbereich schalten.
 

@@ -19,6 +19,14 @@ CONF_VERIFY_SSL = "verify_ssl"
 # Options-Flow
 CONF_SCAN_INTERVAL = "scan_interval"
 CONF_PARTITIONS = "partitions"  # Liste ausgewählter Teilbereich-IDs (str)
+# Optionaler HA-eigener Code fürs Unscharfschalten (nicht der Secvest-Code).
+# Leer = kein Code nötig. Scharfschalten bleibt immer ohne Code.
+CONF_DISARM_CODE = "disarm_code"
+# Nach dem Scharfschalten so oft/lange nachprüfen, ob die Anlage den
+# Teilbereich wirklich scharf meldet (manche Firmwares antworten 2xx und
+# brechen intern ab, z.B. bei offener Zone).
+ARM_VERIFY_ATTEMPTS = 4
+ARM_VERIFY_INTERVAL = 2.5  # Sekunden
 MIN_SCAN_INTERVAL = 10  # Anlage bricht unter Last ab -> nie darunter
 MAX_SCAN_INTERVAL = 120
 

@@ -36,7 +36,8 @@
         "title": "Secvest-Optionen",
         "data": {
           "scan_interval": "Abfrageintervall in Sekunden (10–120)",
-          "partitions": "Genutzte Teilbereiche"
+          "partitions": "Genutzte Teilbereiche",
+          "disarm_code": "Code zum Unscharfschalten in Home Assistant (leer = kein Code)"
         }
       }
     }

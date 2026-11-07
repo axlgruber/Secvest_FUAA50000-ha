@@ -23,10 +23,14 @@ from homeassistant.helpers.selector import (
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
+    TextSelector,
+    TextSelectorConfig,
+    TextSelectorType,
 )
 
 from .api import SecvestAuthError, SecvestClient, SecvestConnectionError
 from .const import (
+    CONF_DISARM_CODE,
     CONF_PARTITIONS,
     CONF_SCAN_INTERVAL,
     CONF_VERIFY_SSL,
@@ -174,6 +178,8 @@ class SecvestOptionsFlow(OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         if user_input is not None:
+            code = str(user_input.get(CONF_DISARM_CODE) or "").strip()
+            user_input[CONF_DISARM_CODE] = code
             return self.async_create_entry(title="", data=user_input)
 
         coordinator = self._entry.runtime_data
@@ -220,6 +226,14 @@ class SecvestOptionsFlow(OptionsFlow):
                         mode=SelectSelectorMode.LIST,
                     )
                 ),
+                vol.Optional(
+                    CONF_DISARM_CODE,
+                    description={
+                        "suggested_value": self._entry.options.get(
+                            CONF_DISARM_CODE, ""
+                        )
+                    },
+                ): TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD)),
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema)

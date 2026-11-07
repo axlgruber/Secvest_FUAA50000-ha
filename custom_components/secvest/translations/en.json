@@ -36,7 +36,8 @@
         "title": "Secvest options",
         "data": {
           "scan_interval": "Polling interval in seconds (10-120)",
-          "partitions": "Partitions in use"
+          "partitions": "Partitions in use",
+          "disarm_code": "Code to disarm from Home Assistant (empty = no code)"
         }
       }
     }
