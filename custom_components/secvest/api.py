@@ -1,9 +1,9 @@
 """Async API-Client für die ABUS Secvest (FUAA50000).
 
 Auf Basis eines HAR-Mitschnitts der Web-UI verifiziert (07/2026).
-Primär HTTP Basic Auth; falls die Anlage einen Request mit 401/403
-ablehnt, wird automatisch der Form-Login (/sec_login.cgi) als
-Session-Fallback ausgeführt und der Request wiederholt.
+Nur HTTP Basic Auth. Der frühere Form-Login-Fallback (/sec_login.cgi)
+ist entfernt: Er hat als Web-Session einen gleichzeitig angemeldeten
+Errichter aus der Web-Oberfläche geworfen bzw. ausgesperrt.
 """
 
 from __future__ import annotations
@@ -18,7 +18,6 @@ import httpx
 from .const import (
     DEFAULT_LOG_LIMIT,
     FAULT_TYPE_OPEN_ZONE,
-    ENDPOINT_FAULT_ACK,
     ENDPOINT_FAULTS,
     ENDPOINT_FORM_LOGIN,
     ENDPOINT_LOGS,
@@ -135,16 +134,10 @@ class SecvestClient:
         except httpx.TimeoutException as err:
             raise SecvestConnectionError("Timeout") from err
 
-        # Basic abgelehnt? Einmalig Session-Login versuchen und wiederholen.
-        if resp.status_code in (401, 403) and not self._form_login_done:
-            await self._form_login()
-            try:
-                resp = await self._client.request(
-                    method, self._base + path, **kwargs
-                )
-            except httpx.HTTPError as err:
-                raise SecvestConnectionError("Wiederholung fehlgeschlagen") from err
-
+        # KEIN Form-Login-Fallback mehr: Eine Web-Session der Integration
+        # beendet bzw. blockiert die Sitzung eines gleichzeitig angemeldeten
+        # Errichters/Admins (Secvest erlaubt nur eine). Basic Auth reicht
+        # auf der FUAA50000; bei 401/403 also direkt Auth-Fehler melden.
         if resp.status_code in (401, 403):
             raise SecvestAuthError(
                 "Anmeldung abgelehnt – Benutzer Code / Web-Passwort prüfen"
@@ -357,30 +350,6 @@ class SecvestClient:
             if str(part.get("id")) == str(partition):
                 return str(part.get("state", "")).lower()
         return None
-
-    async def async_ack_faults(self, faults: list[dict[str, Any]]) -> int:
-        """Störungen quittieren; Rückgabe: Anzahl angenommener Quittungen.
-
-        Offene-Zone-"Störungen" (type 5000) werden übersprungen – die
-        verschwinden erst, wenn die Zone geschlossen ist.
-        """
-        acked = 0
-        for fault in faults:
-            fid = fault.get("id")
-            if not fid or str(fault.get("type")) == FAULT_TYPE_OPEN_ZONE:
-                continue
-            resp = await self._request(
-                "PUT",
-                ENDPOINT_FAULT_ACK.format(fid=fid),
-                json={"ack": True, "acknowledge": True},
-            )
-            if resp.status_code < 300:
-                acked += 1
-            else:
-                _LOGGER.warning(
-                    "Störung %s nicht quittiert: HTTP %s", fid, resp.status_code
-                )
-        return acked
 
     async def async_set_partition(self, partition: int, mode: str) -> dict:
         """Teilbereich schalten.
