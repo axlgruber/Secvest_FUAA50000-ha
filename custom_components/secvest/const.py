@@ -31,6 +31,11 @@ DEFAULT_LOG_LIMIT = 10
 
 ENDPOINT_PARTITIONS = "/system/partitions/"
 ENDPOINT_PARTITION_SET = "/system/partitions-{p}/"
+# Melder je Teilbereich: JSON-Array mit name + state ("open"/"closed"),
+# Basic-tauglich. Liefert den Offen-Status auch im unscharfen Zustand –
+# auf manchen Anlagen/Firmwares erscheint dort KEINE type-5000-Störung.
+ENDPOINT_PARTITION_ZONES = "/system/partitions-{p}/zones/"
+ZONE_STATE_OPEN = "open"
 ENDPOINT_FAULTS = "/faults/"
 # sec_global_status.cgx liefert offene Zonen nur einer eingeloggten
 # Web-UI-Session (Basic: <authorised> leer). Daher NICHT vom Client

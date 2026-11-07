@@ -22,9 +22,11 @@ from .const import (
     ENDPOINT_FORM_LOGIN,
     ENDPOINT_LOGS,
     ENDPOINT_PARTITION_SET,
+    ENDPOINT_PARTITION_ZONES,
     ENDPOINT_PARTITIONS,
     STATE_SET,
     STATE_UNSET,
+    ZONE_STATE_OPEN,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -202,6 +204,19 @@ class SecvestClient:
         # Offen-Status + Namen aus type-5000-Störungen (Basic-tauglich).
         data.zones = self._build_zones(data.partitions, data.faults)
 
+        # Melder direkt je Teilbereich (Namen + Offen-Status). Ergänzt die
+        # Ableitung aus /faults/: auf manchen Firmwares fehlt dort die
+        # type-5000-Störung bei unscharfer Anlage.
+        for pid, part in data.partitions.items():
+            if not part.get("zones"):
+                continue  # Teilbereich ohne Melder -> keine Extra-Abfrage
+            try:
+                zone_list = await self.async_get_partition_zones(pid)
+            except (SecvestConnectionError, SecvestAuthError):
+                _LOGGER.debug("Zonen von Teilbereich %s nicht abrufbar", pid)
+                continue
+            self._merge_partition_zones(data, pid, zone_list)
+
         # Ereignisprotokoll (optional). Im selben sequentiellen Poll-Zyklus,
         # keine Extra-Requests außerhalb des Coordinators.
         try:
@@ -249,6 +264,67 @@ class SecvestClient:
             if not zone.get("partition") and affects:
                 zone["partition"] = str(affects[0])
         return zones
+
+    async def async_get_partition_zones(self, partition: int) -> list[dict]:
+        """Melder eines Teilbereichs (GET /system/partitions-{n}/zones/).
+
+        Liefert [] bei 404/Fehlantwort – ältere Firmware ohne diesen
+        Endpoint fällt so auf die /faults/-Ableitung zurück.
+        """
+        resp = await self._request(
+            "GET", ENDPOINT_PARTITION_ZONES.format(p=partition)
+        )
+        if resp.status_code >= 300:
+            return []
+        try:
+            payload = resp.json()
+        except ValueError:
+            return []
+        if not isinstance(payload, list):
+            return []
+        return [z for z in payload if isinstance(z, dict)]
+
+    @staticmethod
+    def _zone_id_of(zone: dict[str, Any]) -> str | None:
+        for key in ("id", "zone-id", "zone_id", "zone", "number"):
+            value = zone.get(key)
+            if value not in (None, ""):
+                return str(value)
+        return None
+
+    def _merge_partition_zones(
+        self, data: SecvestData, partition: int, zone_list: list[dict]
+    ) -> None:
+        """Ergebnis von /system/partitions-{n}/zones/ in data.zones mergen.
+
+        Zuordnung über eine ID im Payload; fehlt sie, über die Reihenfolge
+        der Zonen-IDs aus /system/partitions/ (nur bei gleicher Anzahl).
+        Offen ist eine Zone, wenn der Endpoint ODER eine type-5000-Störung
+        das meldet.
+        """
+        if not zone_list:
+            return
+        known_ids = [str(z) for z in data.partitions[partition].get("zones", [])]
+        by_position = len(zone_list) == len(known_ids)
+        for idx, zone in enumerate(zone_list):
+            zid = self._zone_id_of(zone)
+            if zid is None:
+                if not by_position:
+                    continue
+                zid = known_ids[idx]
+            name = zone.get("name")
+            state = str(zone.get("state", "")).lower()
+            entry = data.zones.setdefault(
+                zid, {"name": None, "partition": str(partition), "open": False}
+            )
+            if isinstance(name, str) and name.strip():
+                self._zone_names[zid] = name.strip()
+                entry["name"] = name.strip()
+            elif not entry.get("name"):
+                entry["name"] = f"Zone {zid}"
+            if not entry.get("partition"):
+                entry["partition"] = str(partition)
+            entry["open"] = bool(entry.get("open")) or state == ZONE_STATE_OPEN
 
     async def async_get_logs(self, limit: int = DEFAULT_LOG_LIMIT) -> list[dict]:
         """Neueste Ereignisse aus /logs/.

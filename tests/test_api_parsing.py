@@ -155,3 +155,83 @@ def test_open_zone_endpoint_gone():
     finally:
         _run(client.async_close())
     assert data.zones  # nicht leer
+
+
+# --- /system/partitions-{n}/zones/ ------------------------------------ #
+def _make_zone_client(zone_payloads, faults=None):
+    """Client, der zusätzlich Melder je Teilbereich liefert."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path
+        if path == const.ENDPOINT_PARTITIONS:
+            return httpx.Response(200, json=PARTITIONS)
+        if path == const.ENDPOINT_FAULTS:
+            return httpx.Response(200, json=faults or [])
+        if path == const.ENDPOINT_LOGS:
+            return httpx.Response(200, json=[])
+        for pid, payload in zone_payloads.items():
+            if path == const.ENDPOINT_PARTITION_ZONES.format(p=pid):
+                return httpx.Response(200, json=payload)
+        return httpx.Response(404, text="not found")
+
+    client = api.SecvestClient("host", 4433, "user", "pw")
+    client._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    return client
+
+
+def test_partition_zones_open_without_fault():
+    # Anlage unscharf, Tür offen, aber KEINE type-5000-Störung.
+    client = _make_zone_client(
+        {
+            2: [{"name": "Terrassentür", "state": "open"}],
+            1: [{"name": "Haustür", "state": "closed"}],
+        }
+    )
+    try:
+        data = _run(client.async_get_data())
+    finally:
+        _run(client.async_close())
+    assert data.zones["301"]["open"] is True
+    assert data.zones["301"]["name"] == "Terrassentür"
+    assert data.zones["303"]["open"] is False
+    assert data.zones["303"]["name"] == "Haustür"
+    # Teilbereich 3 ohne Zonen-Endpoint (404) -> Fallback bleibt
+    assert data.zones["302"]["name"] == "Zone 302"
+
+
+def test_partition_zones_matched_by_id():
+    client = _make_zone_client(
+        {2: [{"id": "301", "name": "EG Draht", "state": "closed"}]}
+    )
+    try:
+        data = _run(client.async_get_data())
+    finally:
+        _run(client.async_close())
+    assert data.zones["301"]["name"] == "EG Draht"
+    assert data.zones["301"]["open"] is False
+
+
+def test_partition_zones_fault_still_counts():
+    # Endpoint sagt zu, Störung sagt offen -> offen (ODER-Verknüpfung).
+    client = _make_zone_client(
+        {3: [{"name": "OG Draht", "state": "closed"}]}, faults=[FAULT_OPEN_ZONE]
+    )
+    try:
+        data = _run(client.async_get_data())
+    finally:
+        _run(client.async_close())
+    assert data.zones["302"]["open"] is True
+
+
+def test_partition_zones_position_mismatch_ignored():
+    # Zwei Einträge ohne ID für einen Teilbereich mit einer Zone -> nicht
+    # raten, generischer Name bleibt.
+    client = _make_zone_client(
+        {2: [{"name": "A", "state": "open"}, {"name": "B", "state": "open"}]}
+    )
+    try:
+        data = _run(client.async_get_data())
+    finally:
+        _run(client.async_close())
+    assert data.zones["301"]["name"] == "Zone 301"
+    assert data.zones["301"]["open"] is False

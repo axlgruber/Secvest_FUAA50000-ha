@@ -116,7 +116,8 @@ class SecvestFaultSensor(CoordinatorEntity[SecvestCoordinator], BinarySensorEnti
 class SecvestZoneSensor(CoordinatorEntity[SecvestCoordinator], BinarySensorEntity):
     """Einzelner Melder/eine Zone (offen/geschlossen).
 
-    Offen = die Zone erscheint als offene-Zone-Störung (type 5000).
+    Offen = Endpoint /system/partitions-{n}/zones/ meldet "open" ODER die
+    Zone erscheint als offene-Zone-Störung (type 5000).
     Name wird beim ersten Offen-Zustand aus der Störung übernommen und
     im Client gecacht; bis dahin "Zone <id>". unique_id über die
     stabile Zonen-ID, nicht den Namen.
