@@ -22,6 +22,10 @@ CONF_PARTITIONS = "partitions"  # Liste ausgewählter Teilbereich-IDs (str)
 # Optionaler HA-eigener Code fürs Unscharfschalten (nicht der Secvest-Code).
 # Leer = kein Code nötig. Scharfschalten bleibt immer ohne Code.
 CONF_DISARM_CODE = "disarm_code"
+# HA-Benutzer (IDs), die OHNE Code unscharf schalten dürfen – gedacht für
+# Skripte/Apple Watch, die keinen Code abfragen können. Geprüft wird die
+# user_id im Kontext des Service-Aufrufs (bleibt durch Skripte erhalten).
+CONF_TRUSTED_USERS = "trusted_users"
 # Nach dem Scharfschalten so oft/lange nachprüfen, ob die Anlage den
 # Teilbereich wirklich scharf meldet (manche Firmwares antworten 2xx und
 # brechen intern ab, z.B. bei offener Zone).

@@ -37,7 +37,8 @@
         "data": {
           "scan_interval": "Polling interval in seconds (10-120)",
           "partitions": "Partitions in use",
-          "disarm_code": "Code to disarm from Home Assistant (empty = no code)"
+          "disarm_code": "Code to disarm from Home Assistant (empty = no code)",
+          "trusted_users": "Users allowed to disarm without code (e.g. Apple Watch)"
         }
       }
     }

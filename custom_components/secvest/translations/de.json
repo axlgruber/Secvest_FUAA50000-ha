@@ -37,7 +37,8 @@
         "data": {
           "scan_interval": "Abfrageintervall in Sekunden (10–120)",
           "partitions": "Genutzte Teilbereiche",
-          "disarm_code": "Code zum Unscharfschalten in Home Assistant (leer = kein Code)"
+          "disarm_code": "Code zum Unscharfschalten in Home Assistant (leer = kein Code)",
+          "trusted_users": "Benutzer, die ohne Code unscharf schalten dürfen (z. B. für Apple Watch)"
         }
       }
     }

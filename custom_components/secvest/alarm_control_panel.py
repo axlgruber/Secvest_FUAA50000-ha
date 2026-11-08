@@ -28,6 +28,7 @@ from .const import (
     ARM_VERIFY_ATTEMPTS,
     ARM_VERIFY_INTERVAL,
     CONF_DISARM_CODE,
+    CONF_TRUSTED_USERS,
     DOMAIN,
     STATE_ACKNOWLEDGED,
     STATE_ALARM,
@@ -78,6 +79,9 @@ class SecvestAlarmPanel(CoordinatorEntity[SecvestCoordinator], AlarmControlPanel
         # Übergangszustand (arming/disarming) für sofortiges UI-Feedback,
         # solange Schalten + Nachprüfung laufen.
         self._pending: AlarmControlPanelState | None = None
+        self._trusted_users: set[str] = set(
+            entry.options.get(CONF_TRUSTED_USERS) or []
+        )
         self._disarm_code: str = str(
             entry.options.get(CONF_DISARM_CODE) or ""
         ).strip()
@@ -218,10 +222,20 @@ class SecvestAlarmPanel(CoordinatorEntity[SecvestCoordinator], AlarmControlPanel
         await self._arm(STATE_SET)
 
     async def async_alarm_disarm(self, code: str | None = None) -> None:
-        if self._disarm_code and not hmac.compare_digest(
-            str(code or ""), self._disarm_code
-        ):
-            raise HomeAssistantError("Falscher Code – nicht unscharf geschaltet")
+        if self._disarm_code:
+            user_id = self._context.user_id if self._context else None
+            if code:
+                if not hmac.compare_digest(str(code), self._disarm_code):
+                    raise HomeAssistantError(
+                        "Falscher Code – nicht unscharf geschaltet"
+                    )
+            elif not (user_id and user_id in self._trusted_users):
+                # Ohne Code nur für ausdrücklich freigegebene Benutzer
+                # (z.B. Skript auf der Apple Watch). Automationen haben
+                # keinen Benutzer und brauchen daher immer den Code.
+                raise HomeAssistantError(
+                    "Code erforderlich – nicht unscharf geschaltet"
+                )
         self._set_pending(AlarmControlPanelState.DISARMING)
         try:
             await self._disarm_with_followup()

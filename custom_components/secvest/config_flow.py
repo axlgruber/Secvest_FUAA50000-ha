@@ -31,6 +31,7 @@ from homeassistant.helpers.selector import (
 from .api import SecvestAuthError, SecvestClient, SecvestConnectionError
 from .const import (
     CONF_DISARM_CODE,
+    CONF_TRUSTED_USERS,
     CONF_PARTITIONS,
     CONF_SCAN_INTERVAL,
     CONF_VERIFY_SSL,
@@ -182,6 +183,20 @@ class SecvestOptionsFlow(OptionsFlow):
             user_input[CONF_DISARM_CODE] = code
             return self.async_create_entry(title="", data=user_input)
 
+        users = [
+            u
+            for u in await self.hass.auth.async_get_users()
+            if u.is_active and not u.system_generated
+        ]
+        user_options = [
+            SelectOptionDict(value=u.id, label=u.name or u.id) for u in users
+        ]
+        current_trusted = [
+            uid
+            for uid in self._entry.options.get(CONF_TRUSTED_USERS, [])
+            if any(u.id == uid for u in users)
+        ]
+
         coordinator = self._entry.runtime_data
         partitions = (
             coordinator.data.partitions
@@ -234,6 +249,15 @@ class SecvestOptionsFlow(OptionsFlow):
                         )
                     },
                 ): TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD)),
+                vol.Optional(
+                    CONF_TRUSTED_USERS, default=current_trusted
+                ): SelectSelector(
+                    SelectSelectorConfig(
+                        options=user_options,
+                        multiple=True,
+                        mode=SelectSelectorMode.LIST,
+                    )
+                ),
             }
         )
         return self.async_show_form(step_id="init", data_schema=schema)
