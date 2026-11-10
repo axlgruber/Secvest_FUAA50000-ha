@@ -11,7 +11,7 @@ from homeassistant.config_entries import (
     ConfigEntry,
     ConfigFlow,
     ConfigFlowResult,
-    OptionsFlow,
+    OptionsFlowWithReload,
 )
 from homeassistant.const import CONF_HOST, CONF_PASSWORD, CONF_PORT, CONF_USERNAME
 from homeassistant.core import callback
@@ -169,8 +169,13 @@ class SecvestConfigFlow(ConfigFlow, domain=DOMAIN):
         return SecvestOptionsFlow(config_entry)
 
 
-class SecvestOptionsFlow(OptionsFlow):
-    """Optionen: Poll-Intervall und Auswahl der genutzten Teilbereiche."""
+class SecvestOptionsFlow(OptionsFlowWithReload):
+    """Optionen: Poll-Intervall, Teilbereiche, Code, Benutzer ohne Code.
+
+    OptionsFlowWithReload lädt die Integration nach dem Speichern neu –
+    ersetzt den früheren Update-Listener (Listener + Reload-Methoden im
+    Flow sind seit 2026.6 deprecated, ab 2026.12 ein Fehler).
+    """
 
     def __init__(self, config_entry: ConfigEntry) -> None:
         self._entry = config_entry
