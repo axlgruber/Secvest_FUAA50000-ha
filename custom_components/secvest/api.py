@@ -33,14 +33,16 @@ _LOGGER = logging.getLogger(__name__)
 
 # Der TLS-Handshake der Anlage dauert gemessen ~7 s (schwache Panel-CPU,
 # ECDHE-RSA-CHACHA20/TLSv1.2). Connect-Timeout entsprechend großzügig.
-TIMEOUT = httpx.Timeout(10.0, connect=20.0)
+TIMEOUT = httpx.Timeout(10.0, connect=20.0, pool=40.0)
 # Verbindungen offen halten: httpx verwirft unbenutzte Verbindungen sonst
 # nach 5 s – bei 10-s-Polling kostete damit JEDE Abfrage und jeder
 # Schaltbefehl einen neuen TLS-Handshake (gemessen 6,5 s, parallel 12–14 s).
-# Zwei Keep-Alive-Verbindungen, damit EG und KELLER parallel schalten
-# können, ohne dass einer neu verbinden muss.
+# Nur EINE Verbindung: Die Anlage schließt eine zweite, gerade unbenutzte
+# Verbindung von sich aus (gemessen), sodass jedes Schalten wieder einen
+# Handshake brauchte. Sie arbeitet Befehle ohnehin seriell ab; Requests
+# warten daher im Pool hintereinander (pool-Timeout großzügig).
 LIMITS = httpx.Limits(
-    max_connections=3, max_keepalive_connections=2, keepalive_expiry=60.0
+    max_connections=1, max_keepalive_connections=1, keepalive_expiry=60.0
 )
 # Schließt die Anlage eine offen gehaltene Verbindung von sich aus, scheitert
 # der nächste Request auf ihr; dann einmal auf frischer Verbindung wiederholen.
@@ -114,6 +116,7 @@ class SecvestClient:
         # Zonennamen tauchen nur in offenen-Zone-Störungen auf; einmal
         # gesehen, für die Prozesslaufzeit merken (zone_id -> Name).
         self._zone_names: dict[str, str] = {}
+        self._last_logs: list[dict[str, Any]] = []
 
     async def async_close(self) -> None:
         await self._client.aclose()
@@ -193,7 +196,7 @@ class SecvestClient:
                 "Antwort ist kein JSON – Firmware abweichend?"
             ) from err
 
-    async def async_get_data(self) -> SecvestData:
+    async def async_get_data(self, include_logs: bool = True) -> SecvestData:
         """Teilbereiche, Störungen und offene Zonen abholen."""
         data = SecvestData()
 
@@ -245,7 +248,13 @@ class SecvestClient:
         # Ereignisprotokoll (optional). Im selben sequentiellen Poll-Zyklus,
         # keine Extra-Requests außerhalb des Coordinators.
         try:
-            data.logs = await self.async_get_logs()
+            if include_logs:
+                data.logs = await self.async_get_logs()
+                self._last_logs = data.logs
+            else:
+                # /logs/ liefert ~600 Einträge; der Body braucht auf der
+                # Anlage ~6 s -> nur noch selten holen, sonst letzten Stand.
+                data.logs = self._last_logs
         except SecvestConnectionError:
             _LOGGER.debug("Logs nicht abrufbar, werden übersprungen")
 

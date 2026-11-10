@@ -44,6 +44,8 @@ DEFAULT_VERIFY_SSL = False  # selbstsigniertes Zertifikat
 # /logs/ liefert ~600 Einträge und ignoriert ?limit -> client-seitig
 # auf die neuesten begrenzen.
 DEFAULT_LOG_LIMIT = 10
+# Ereignisprotokoll nur so oft abrufen (Sekunden); der Abruf kostet ~6 s.
+LOG_REFRESH_INTERVAL = 300
 
 ENDPOINT_PARTITIONS = "/system/partitions/"
 ENDPOINT_PARTITION_SET = "/system/partitions-{p}/"

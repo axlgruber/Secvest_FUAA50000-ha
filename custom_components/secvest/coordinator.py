@@ -16,6 +16,7 @@ from .const import (
     CONF_SCAN_INTERVAL,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
+    LOG_REFRESH_INTERVAL,
     MAX_TOLERATED_FAILURES,
 )
 
@@ -43,6 +44,7 @@ class SecvestCoordinator(DataUpdateCoordinator[SecvestData]):
         # >0, solange ein Schaltvorgang läuft: Polls pausieren, damit sie
         # nicht mit dem Schaltbefehl um die schwache CPU der Anlage konkurrieren.
         self.busy = 0
+        self._logs_fetched_at: float | None = None
         # partition_id -> (bestätigter Zustand, monotonic-Zeitpunkt). Schützt
         # vor Polls, die VOR dem Schalten gestartet wurden und mit altem
         # Zustand zurückkommen (ein Poll dauert wegen TLS mehrere Sekunden).
@@ -62,7 +64,13 @@ class SecvestCoordinator(DataUpdateCoordinator[SecvestData]):
             return self.data
         poll_started = time.monotonic()
         try:
-            data = await self.client.async_get_data()
+            include_logs = (
+                self._logs_fetched_at is None
+                or poll_started - self._logs_fetched_at >= LOG_REFRESH_INTERVAL
+            )
+            data = await self.client.async_get_data(include_logs=include_logs)
+            if include_logs:
+                self._logs_fetched_at = poll_started
         except SecvestAuthError as err:
             # Auth sofort melden (z.B. Errichter angemeldet) – kein Retry,
             # wiederholte Fehl-Logins können Sabotage auslösen.

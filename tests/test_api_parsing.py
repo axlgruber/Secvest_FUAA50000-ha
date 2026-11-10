@@ -268,3 +268,17 @@ def test_set_partition_returns_reply():
     finally:
         _run(client.async_close())
     assert reply["state"] == "set"
+
+
+def test_get_data_without_logs_keeps_last_logs():
+    client = _make_client()
+    seen = []
+    orig = client._client
+
+    try:
+        first = _run(client.async_get_data())
+        second = _run(client.async_get_data(include_logs=False))
+    finally:
+        _run(client.async_close())
+    assert len(first.logs) == const.DEFAULT_LOG_LIMIT
+    assert second.logs == first.logs
