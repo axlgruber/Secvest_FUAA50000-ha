@@ -8,5 +8,5 @@
   "iot_class": "local_polling",
   "issue_tracker": "https://github.com/LLAlexX78/Secvest_FUAA50000-ha/issues",
   "requirements": ["httpx>=0.27"],
-  "version": "0.2.8"
+  "version": "0.2.9"
 }

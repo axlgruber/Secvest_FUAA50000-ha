@@ -256,8 +256,14 @@ class SecvestAlarmPanel(CoordinatorEntity[SecvestCoordinator], AlarmControlPanel
                 )
             except SecvestError:
                 break
-            if state is None or state == STATE_UNSET:
+            if state == STATE_UNSET:
+                # Bestätigt -> sofort übernehmen, KEIN zusätzlicher Poll.
+                # (Ein awaited Refresh pro Teilbereich lief über den
+                # Debouncer nacheinander und verzögerte das Ende der
+                # Übergangsanzeige – beim Haus-Unscharf sichtbar versetzt.)
                 self._apply_state(state)
+                return
+            if state is None:
                 break
             if state == STATE_ACKNOWLEDGED or "alarm" in state:
                 _LOGGER.debug(
@@ -267,8 +273,11 @@ class SecvestAlarmPanel(CoordinatorEntity[SecvestCoordinator], AlarmControlPanel
                 )
                 await self._switch(STATE_UNSET)
             else:
-                break
-        await self.coordinator.async_request_refresh()
+                self._apply_state(state)
+                return
+        # Zustand unklar (Fehler/keine Antwort/noch quittiert): echten Poll
+        # anstoßen, ohne darauf zu warten.
+        self.hass.async_create_task(self.coordinator.async_request_refresh())
 
     async def async_alarm_arm_home(self, code: str | None = None) -> None:
         """Intern scharf (partset). Nur auf dafür konfigurierten
