@@ -40,6 +40,9 @@ class SecvestCoordinator(DataUpdateCoordinator[SecvestData]):
         )
         self.client = client
         self._failures = 0
+        # >0, solange ein Schaltvorgang läuft: Polls pausieren, damit sie
+        # nicht mit dem Schaltbefehl um die schwache CPU der Anlage konkurrieren.
+        self.busy = 0
         # partition_id -> (bestätigter Zustand, monotonic-Zeitpunkt). Schützt
         # vor Polls, die VOR dem Schalten gestartet wurden und mit altem
         # Zustand zurückkommen (ein Poll dauert wegen TLS mehrere Sekunden).
@@ -54,6 +57,9 @@ class SecvestCoordinator(DataUpdateCoordinator[SecvestData]):
             self.async_update_listeners()
 
     async def _async_update_data(self) -> SecvestData:
+        if self.busy > 0 and self.data is not None:
+            _LOGGER.debug("Schaltvorgang läuft – Abfrage übersprungen")
+            return self.data
         poll_started = time.monotonic()
         try:
             data = await self.client.async_get_data()

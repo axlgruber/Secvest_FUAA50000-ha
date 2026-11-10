@@ -236,3 +236,35 @@ def test_partition_zones_position_mismatch_ignored():
     assert data.zones["301"]["name"] == "Zone 301"
     assert data.zones["301"]["open"] is False
 
+
+
+def test_request_retries_once_on_dropped_connection():
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise httpx.RemoteProtocolError("Server disconnected", request=request)
+        return httpx.Response(200, json=PARTITIONS)
+
+    client = api.SecvestClient("host", 4433, "user", "pw")
+    client._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    try:
+        state = _run(client.async_get_partition_state(2))
+    finally:
+        _run(client.async_close())
+    assert state == "set"
+    assert calls["n"] == 2
+
+
+def test_set_partition_returns_reply():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"id": "2", "name": "EG", "state": "set"})
+
+    client = api.SecvestClient("host", 4433, "user", "pw")
+    client._client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
+    try:
+        reply = _run(client.async_set_partition(2, "set"))
+    finally:
+        _run(client.async_close())
+    assert reply["state"] == "set"

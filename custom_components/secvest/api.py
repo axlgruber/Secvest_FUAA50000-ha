@@ -34,6 +34,21 @@ _LOGGER = logging.getLogger(__name__)
 # Der TLS-Handshake der Anlage dauert gemessen ~7 s (schwache Panel-CPU,
 # ECDHE-RSA-CHACHA20/TLSv1.2). Connect-Timeout entsprechend großzügig.
 TIMEOUT = httpx.Timeout(10.0, connect=20.0)
+# Verbindungen offen halten: httpx verwirft unbenutzte Verbindungen sonst
+# nach 5 s – bei 10-s-Polling kostete damit JEDE Abfrage und jeder
+# Schaltbefehl einen neuen TLS-Handshake (gemessen 6,5 s, parallel 12–14 s).
+# Zwei Keep-Alive-Verbindungen, damit EG und KELLER parallel schalten
+# können, ohne dass einer neu verbinden muss.
+LIMITS = httpx.Limits(
+    max_connections=3, max_keepalive_connections=2, keepalive_expiry=60.0
+)
+# Schließt die Anlage eine offen gehaltene Verbindung von sich aus, scheitert
+# der nächste Request auf ihr; dann einmal auf frischer Verbindung wiederholen.
+_RETRY_ERRORS = (
+    httpx.RemoteProtocolError,
+    httpx.ReadError,
+    httpx.WriteError,
+)
 
 # Führendes "Z<nr> <typ> " aus dem fault-ui-string entfernen -> reiner
 # Zonenname, z.B. "Z302 A OG Draht" -> "OG Draht".
@@ -92,6 +107,7 @@ class SecvestClient:
             auth=httpx.BasicAuth(username, password),
             verify=verify_ssl,
             timeout=TIMEOUT,
+            limits=LIMITS,
             headers={"X-Requested-With": "XMLHttpRequest"},
         )
         self._form_login_done = False
@@ -125,14 +141,29 @@ class SecvestClient:
     async def _request(
         self, method: str, path: str, **kwargs: Any
     ) -> httpx.Response:
-        try:
-            resp = await self._client.request(method, self._base + path, **kwargs)
-        except httpx.ConnectError as err:
-            raise SecvestConnectionError(
-                f"Keine Verbindung zu {self._base}"
-            ) from err
-        except httpx.TimeoutException as err:
-            raise SecvestConnectionError("Timeout") from err
+        resp: httpx.Response | None = None
+        for attempt in (1, 2):
+            try:
+                resp = await self._client.request(
+                    method, self._base + path, **kwargs
+                )
+                break
+            except httpx.ConnectError as err:
+                raise SecvestConnectionError(
+                    f"Keine Verbindung zu {self._base}"
+                ) from err
+            except _RETRY_ERRORS as err:
+                if attempt == 2:
+                    raise SecvestConnectionError(
+                        f"Keine Verbindung zu {self._base}"
+                    ) from err
+                _LOGGER.debug(
+                    "Verbindung von der Anlage geschlossen (%s), neuer Versuch",
+                    type(err).__name__,
+                )
+            except httpx.TimeoutException as err:
+                raise SecvestConnectionError("Timeout") from err
+        assert resp is not None
 
         # KEIN Form-Login-Fallback mehr: Eine Web-Session der Integration
         # beendet bzw. blockiert die Sitzung eines gleichzeitig angemeldeten

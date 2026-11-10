@@ -173,13 +173,21 @@ class SecvestAlarmPanel(CoordinatorEntity[SecvestCoordinator], AlarmControlPanel
             if z.get("open") and z.get("partition") == pid
         ]
 
-    async def _switch(self, mode: str) -> None:
+    async def _switch(self, mode: str) -> str | None:
+        """Schaltbefehl senden; liefert den von der Anlage gemeldeten Zustand.
+
+        Die Secvest antwortet auf den PUT mit dem neuen Teilbereich
+        (z.B. {"state": "set"}). Ist der eindeutig, spart das die
+        Nachprüfung samt Wartezeit.
+        """
         try:
-            await self.coordinator.client.async_set_partition(
+            result = await self.coordinator.client.async_set_partition(
                 self._partition, mode
             )
         except SecvestError as err:
             raise HomeAssistantError(str(err)) from err
+        state = result.get("state") if isinstance(result, dict) else None
+        return str(state).lower() if state else None
 
     async def _arm(self, mode: str) -> None:
         """Scharfschalten mit Vor- und Nachprüfung.
@@ -197,8 +205,13 @@ class SecvestAlarmPanel(CoordinatorEntity[SecvestCoordinator], AlarmControlPanel
             )
         self._set_pending(AlarmControlPanelState.ARMING)
         state: str | None = None
+        self.coordinator.busy += 1
         try:
-            await self._switch(mode)
+            reply = await self._switch(mode)
+            if reply == mode:
+                # Anlage bestätigt direkt -> keine Nachprüfung nötig.
+                self._apply_state(reply)
+                return
             for _ in range(ARM_VERIFY_ATTEMPTS):
                 await asyncio.sleep(ARM_VERIFY_INTERVAL)
                 try:
@@ -211,6 +224,7 @@ class SecvestAlarmPanel(CoordinatorEntity[SecvestCoordinator], AlarmControlPanel
                     break
             self._apply_state(state)
         finally:
+            self.coordinator.busy -= 1
             self._set_pending(None)
         if state == STATE_UNSET:
             raise HomeAssistantError(
@@ -237,13 +251,21 @@ class SecvestAlarmPanel(CoordinatorEntity[SecvestCoordinator], AlarmControlPanel
                     "Code erforderlich – nicht unscharf geschaltet"
                 )
         self._set_pending(AlarmControlPanelState.DISARMING)
+        self.coordinator.busy += 1
         try:
             await self._disarm_with_followup()
         finally:
+            self.coordinator.busy -= 1
             self._set_pending(None)
 
     async def _disarm_with_followup(self) -> None:
-        await self._switch(STATE_UNSET)
+        reply = await self._switch(STATE_UNSET)
+        if reply == STATE_ACKNOWLEDGED or (reply and "alarm" in reply):
+            # Laufender Alarm: erstes unset = nur quittiert -> sofort nachlegen.
+            reply = await self._switch(STATE_UNSET)
+        if reply == STATE_UNSET:
+            self._apply_state(reply)
+            return
         state: str | None = None
         # Bei laufendem Alarm wertet die Secvest das erste "unset" nur als
         # Quittieren (set-alarm -> acknowledged); erst ein zweites "unset"
